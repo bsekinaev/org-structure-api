@@ -85,7 +85,7 @@ def _build_tree(db: Session, dep: models.Department, max_depth: int, include_emp
 
 def update_department(db: Session, dep_id: int, data):
     dep = _check_department(db, dep_id)
-    update_data = data.dict(exclude_unset=True)
+    update_data = data.model_dump(exclude_unset=True)
 
     if 'name' in update_data and update_data['name'] != dep.name:
         _check_unique_name_in_parent(db, update_data['name'],

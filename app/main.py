@@ -39,16 +39,6 @@ def delete_department(
 
 # ---- Employee Endpoint -------
 
-@app.post('/departments/{dep_id}/employees/', response_model=schemas.EmployeeResponse, status_code=201)
+@app.post("/departments/{dep_id}/employees/", response_model=schemas.EmployeeResponse, status_code=201)
 def create_employee(dep_id: int, data: schemas.EmployeeCreate, db: Session = Depends(get_db)):
-    dep = services._check_department(db, dep_id)
-    emp = models.Employee(
-        department_id=dep.id,
-        full_name=data.full_name,
-        position=data.position,
-        hired_at=data.hired_at
-    )
-    db.add(emp)
-    db.commit()
-    db.refresh(emp)
-    return emp
+    return services.create_employee(db, dep_id, data)
