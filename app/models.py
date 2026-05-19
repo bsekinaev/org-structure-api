@@ -23,8 +23,7 @@ class Employee(Base):
     department_id = Column(Integer, ForeignKey('departments.id'), nullable=False)
     full_name = Column(String(200), nullable=False)
     position = Column(String(200), nullable=False)
-    hired_at = Column(Date,nullable=True)
+    hired_at = Column(Date, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Связи
     department = relationship('Department', back_populates='employees')
