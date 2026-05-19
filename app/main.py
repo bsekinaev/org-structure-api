@@ -31,7 +31,7 @@ def update_department(dep_id: int, data: schemas.DepartmentUpdate, db: Session =
 @app.delete('/departments/{dep_id}', status_code=204)
 def delete_department(
     dep_id: int,
-    mode: str = Query(..., regex="^(cascade|reassign)$"),
+    mode: str = Query(..., pattern="^(cascade|reassign)$"),
     reassign_to_department_id: int = Query(None),
     db: Session = Depends(get_db)
 ):
