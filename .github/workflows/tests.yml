@@ -28,7 +28,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/org_db
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/org_db
       PYTHONPATH: .
     steps:
       - name: Checkout
