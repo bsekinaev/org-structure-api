@@ -7,6 +7,7 @@ REST API для управления организационной структ
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
+[![CI](https://github.com/bsekinaev/org-structure-api/actions/workflows/tests.yml/badge.svg)](https://github.com/bsekinaev/org-structure-api/actions/workflows/tests.yml)
 
 ---
 
@@ -34,7 +35,7 @@ REST API для управления организационной структ
 
 - Выдача дерева ограничена `depth=1..5` на уровне FastAPI.
 - Проверка циклов проходит по цепочке родительских подразделений, а не за константное время.
-- Redis-кэширование, JWT и CI/CD находятся в roadmap; в текущем составе зависимостей Redis отсутствует.
+- Redis-кэширование и JWT остаются в roadmap; в текущем составе зависимостей Redis отсутствует. GitHub Actions теперь выполняет интеграционные тесты.
 
 Для подтверждения производительности следует добавить генератор тестовых данных, сценарии нагрузки и сохранённый отчёт с условиями измерений.
 
@@ -77,9 +78,14 @@ Swagger UI: `http://localhost:8000/docs`
 ---
 
 ## 🧪 Тесты
+
+Локально, после запуска PostgreSQL и применения миграций:
+
 ```bash
 docker-compose exec app pytest
 ```
+
+GitHub Actions запускает **интеграционные тесты с отдельным PostgreSQL 15 и миграциями Alembic** на pull request и push в `main`. [Проверенный запуск CI](https://github.com/bsekinaev/org-structure-api/actions/runs/42515089099) — PASS. Это не нагрузочное испытание и не production-деплой.
 
 ---
 
@@ -113,7 +119,7 @@ org-structure-api/
 - [ ] Кэширование часто запрашиваемых деревьев (Redis)
 - [ ] Пагинация для списков сотрудников
 - [ ] Авторизация и разделение ролей (JWT)
-- [ ] CI/CD (GitHub Actions)
+- [x] GitHub Actions CI: PostgreSQL 15, Alembic, pytest (без автоматического деплоя)
 - [ ] Экспорт структуры в CSV/JSON
 - [ ] Логирование и мониторинг
 - [ ] Фронтенд для визуализации дерева
