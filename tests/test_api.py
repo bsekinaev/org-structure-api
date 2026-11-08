@@ -1,12 +1,13 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from app.database import get_db
+from app.database import DATABASE_URL, get_db
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
-import os
 import pytest
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@db:5432/org_db")
+# Integration tests delete rows and reset ID sequences: never target the app DB.
+SQLALCHEMY_DATABASE_URL = DATABASE_URL
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -22,6 +23,12 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clear_db():
+    database_name = make_url(SQLALCHEMY_DATABASE_URL).database or ""
+    if not database_name.endswith("_test"):
+        raise RuntimeError(
+            "Integration tests clear tables; DATABASE_URL must target a "
+            "dedicated database with a name ending in _test"
+        )
     with engine.connect() as conn:
         conn.execute(text("DELETE FROM employees"))
         conn.execute(text("DELETE FROM departments"))
