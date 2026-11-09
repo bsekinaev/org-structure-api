@@ -86,7 +86,7 @@ docker compose up -d app
 
 ## 🧪 Тесты
 
-**Внимание:** интеграционные тесты очищают таблицы `departments` и `employees` и сбрасывают последовательности. **Нельзя запускать их против обычной БД `org_db` или production.** Фикстура запрещает очистку БД, имя которой не заканчивается на `_test`.
+**Внимание:** интеграционные тесты удаляют содержимое таблиц `departments` и `employees` и сбрасывают последовательности. **Не запускайте их против основной или удалённой БД.** Тесты используют отдельный `TEST_DATABASE_URL` и fail-closed проверку: точное имя `org_db_test`, локальный/Compose host и явное разрешение `ALLOW_DESTRUCTIVE_TEST_DB=YES_DELETE_ORG_DB_TEST`. Разрешение допустимо **только для заведомо одноразовой БД**; проверка имени сама по себе не гарантирует её безопасность.
 
 В локальном Docker Compose создайте **отдельную** тестовую БД (один раз, при отсутствии `org_db_test`):
 
@@ -98,10 +98,13 @@ docker compose exec db psql -U postgres -d postgres -c 'CREATE DATABASE org_db_t
 
 ```bash
 docker compose run --rm -e DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test app python -m alembic upgrade head
-docker compose run --rm -e DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test app python -m pytest tests/ -q
+docker compose run --rm \
+  -e TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test \
+  -e ALLOW_DESTRUCTIVE_TEST_DB=YES_DELETE_ORG_DB_TEST \
+  app python -m pytest tests/ -q
 ```
 
-GitHub Actions проверяет **PostgreSQL 15 + Alembic + pytest**, а также отдельную **сборку Docker Compose, миграции, тесты и HTTP-smoke** на временных контейнерах и томах. Workflow не выполняет развёртывание в production и удаляет собственные тестовые тома после завершения.
+GitHub Actions проверяет **PostgreSQL 15 + Alembic + pytest**, а также отдельную **сборку через Docker Compose и тест самого упакованного образа (без bind mount `.:/app`)**: миграции, тесты, HTTP `/`, Swagger `/docs`, реальный `POST /departments/` → `GET /departments/{id}` и SQL `SELECT 1`. Базы и тома временные; workflow не выполняет production-деплой.
 
 ---
 
