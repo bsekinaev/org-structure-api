@@ -28,7 +28,9 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/org_db_test
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/org_db
+      TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/org_db_test
+      ALLOW_DESTRUCTIVE_TEST_DB: YES_DELETE_ORG_DB_TEST
       PYTHONPATH: .
     steps:
       - name: Checkout
@@ -41,15 +43,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-      - name: Apply database migrations
-        run: python -m alembic upgrade head
+      - name: Apply migrations to disposable test DB only
+        run: DATABASE_URL="$TEST_DATABASE_URL" python -m alembic upgrade head
       - name: Check migration head
-        run: python -m alembic current --check-heads
+        run: DATABASE_URL="$TEST_DATABASE_URL" python -m alembic current --check-heads
       - name: Run regression and integration tests
         run: python -m pytest tests/ -q
 
   docker-smoke:
-    name: Docker Compose / migrations / API / pytest
+    name: Docker image / migrations / CRUD / pytest
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -63,7 +65,8 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose build app
-      - name: Start isolated PostgreSQL and create test database
+          docker image inspect "${COMPOSE_PROJECT_NAME}-app" >/dev/null
+      - name: Start disposable PostgreSQL and create test database
         run: |
           set -euo pipefail
           docker compose up -d db
@@ -75,26 +78,61 @@ jobs:
           done
           docker compose exec -T db pg_isready -U postgres -d org_db
           docker compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE org_db_test'
-      - name: Migrate and test isolated Docker database
+      - name: Migrate and test disposable DB using packaged image
         run: |
           set -euo pipefail
-          docker compose run --rm -e DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test app python -m alembic upgrade head
-          docker compose run --rm -e DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test app python -m alembic current --check-heads
-          docker compose run --rm -e DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test app python -m pytest tests/ -q
-      - name: Smoke-check Docker API and PostgreSQL driver
+          image="${COMPOSE_PROJECT_NAME}-app"
+          network="${COMPOSE_PROJECT_NAME}_default"
+          test_dsn="postgresql+psycopg2://postgres:postgres@db:5432/org_db_test"
+          app_dsn="postgresql+psycopg2://postgres:postgres@db:5432/org_db"
+          docker run --rm --network "$network" -e DATABASE_URL="$test_dsn" "$image" python -m alembic upgrade head
+          docker run --rm --network "$network" -e DATABASE_URL="$test_dsn" "$image" python -m alembic current --check-heads
+          docker run --rm --network "$network" -e DATABASE_URL="$app_dsn" -e TEST_DATABASE_URL="$test_dsn" -e ALLOW_DESTRUCTIVE_TEST_DB=YES_DELETE_ORG_DB_TEST "$image" python -m pytest tests/ -q
+      - name: Migrate app DB and smoke-test packaged CRUD API
         run: |
           set -euo pipefail
-          docker compose up -d app
+          image="${COMPOSE_PROJECT_NAME}-app"
+          network="${COMPOSE_PROJECT_NAME}_default"
+          app_dsn="postgresql+psycopg2://postgres:postgres@db:5432/org_db"
+          docker run --rm --network "$network" -e DATABASE_URL="$app_dsn" "$image" python -m alembic upgrade head
+          docker run -d --name org-gh01-ci-packaged-app --network "$network" -e DATABASE_URL="$app_dsn" "$image"
           for attempt in $(seq 1 30); do
-            if docker compose exec -T app python -c 'from urllib.request import urlopen; assert urlopen("http://127.0.0.1:8000/").status == 200; assert urlopen("http://127.0.0.1:8000/docs").status == 200'; then
-              docker compose exec -T app python -c 'from sqlalchemy import text; from app.database import engine; c = engine.connect(); assert c.execute(text("SELECT 1")).scalar() == 1; c.close()'
-              exit 0
+            if docker exec org-gh01-ci-packaged-app python -c 'from urllib.request import urlopen; assert urlopen("http://127.0.0.1:8000/", timeout=3).status == 200'; then
+              break
             fi
             sleep 2
           done
-          echo "API did not pass HTTP smoke"
-          docker compose logs --no-color app
-          exit 1
-      - name: Clean up disposable Docker volumes
+          docker exec -i org-gh01-ci-packaged-app python - <<'PY'
+          import json
+          from urllib.request import Request, urlopen
+          from sqlalchemy import text
+          from app.database import engine
+
+          base = "http://127.0.0.1:8000"
+          with urlopen(base + "/", timeout=5) as response:
+              assert response.status == 200
+          with urlopen(base + "/docs", timeout=5) as response:
+              assert response.status == 200
+          req = Request(
+              base + "/departments/",
+              data=json.dumps({"name": "CI smoke root"}).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urlopen(req, timeout=5) as response:
+              assert response.status == 201
+              created = json.load(response)
+          with urlopen(base + "/departments/" + str(created["id"]), timeout=5) as response:
+              assert response.status == 200
+              read_back = json.load(response)
+          assert read_back["id"] == created["id"]
+          assert read_back["name"] == "CI smoke root"
+          with engine.connect() as connection:
+              assert connection.execute(text("SELECT 1")).scalar() == 1
+          print("PACKAGED_API_CRUD_SMOKE_PASS")
+          PY
+      - name: Remove disposable containers and volumes
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: |
+          docker rm -f org-gh01-ci-packaged-app || true
+          docker compose down -v --remove-orphans
