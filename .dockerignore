@@ -1,0 +1,22 @@
+# Never bake local credentials into the Docker image
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Git and editor state
+.git/
+.github/
+.idea/
+.vscode/
+
+# Python/local test artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.log

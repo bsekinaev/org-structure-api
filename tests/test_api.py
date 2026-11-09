@@ -1,12 +1,15 @@
+import os
+
+import pytest
 from fastapi.testclient import TestClient
-from app.main import app
-from app.database import get_db
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-import os
-import pytest
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@db:5432/org_db")
+from app.main import app
+from app.database import get_db, normalize_database_url
+
+# Explicit test-only DSN: never infer the destructive test target from DATABASE_URL.
+SQLALCHEMY_DATABASE_URL = normalize_database_url(os.getenv("TEST_DATABASE_URL"))
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -22,6 +25,11 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clear_db():
+    from tests.db_safety import require_disposable_database
+
+    require_disposable_database(
+        SQLALCHEMY_DATABASE_URL, os.getenv("ALLOW_DESTRUCTIVE_TEST_DB")
+    )
     with engine.connect() as conn:
         conn.execute(text("DELETE FROM employees"))
         conn.execute(text("DELETE FROM departments"))

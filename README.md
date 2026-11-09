@@ -61,31 +61,50 @@ git clone https://github.com/bsekinaev/org-structure-api.git
 cd org-structure-api
 ```
 
-### 2. Создайте `.env` файл
-```
-DATABASE_URL=postgresql://postgres:postgres@db:5432/org_db
-```
+### 2. Создайте `.env` из примера
 
-### 3. Запуск
 ```bash
-docker-compose up --build -d
-docker-compose exec app alembic upgrade head
+cp .env.example .env
 ```
 
-Приложение доступно на `http://localhost:8000`.  
-Swagger UI: `http://localhost:8000/docs`
+В Docker используется `DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db`. Установленная зависимость — `psycopg2-binary` (синхронный драйвер). Старый URL с `postgresql://` автоматически нормализуется к `postgresql+psycopg2://` для совместимости. Не используйте примерные логин и пароль в публичном окружении.
+
+При запуске API вне Docker вместо хоста `db` используйте `127.0.0.1` при доступном порте PostgreSQL.
+
+### 3. Docker Compose и миграции
+
+```bash
+docker compose up -d db
+docker compose build app
+docker compose run --rm app python -m alembic upgrade head
+docker compose up -d app
+```
+
+После запуска: `http://localhost:8000/`; Swagger UI: `http://localhost:8000/docs`. Все команды рассчитаны на локальный Docker Compose с тестовыми учётными данными, а не на удалённую базу.
 
 ---
 
 ## 🧪 Тесты
 
-Локально, после запуска PostgreSQL и применения миграций:
+**Внимание:** интеграционные тесты удаляют содержимое таблиц `departments` и `employees` и сбрасывают последовательности. **Не запускайте их против основной или удалённой БД.** Тесты используют отдельный `TEST_DATABASE_URL` и fail-closed проверку: точное имя `org_db_test`, локальный/Compose host и явное разрешение `ALLOW_DESTRUCTIVE_TEST_DB=YES_DELETE_ORG_DB_TEST`. Разрешение допустимо **только для заведомо одноразовой БД**; проверка имени сама по себе не гарантирует её безопасность.
+
+В локальном Docker Compose создайте **отдельную** тестовую БД (один раз, при отсутствии `org_db_test`):
 
 ```bash
-docker-compose exec app pytest
+docker compose exec db psql -U postgres -d postgres -c 'CREATE DATABASE org_db_test'
 ```
 
-GitHub Actions запускает **интеграционные тесты с отдельным PostgreSQL 15 и миграциями Alembic** на pull request и push в `main`. [Проверенный запуск CI](https://github.com/bsekinaev/org-structure-api/actions/runs/42515089099) — PASS. Это не нагрузочное испытание и не production-деплой.
+Примените к ней миграции и проверьте все тесты:
+
+```bash
+docker compose run --rm -e DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test app python -m alembic upgrade head
+docker compose run --rm \
+  -e TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/org_db_test \
+  -e ALLOW_DESTRUCTIVE_TEST_DB=YES_DELETE_ORG_DB_TEST \
+  app python -m pytest tests/ -q
+```
+
+GitHub Actions проверяет **PostgreSQL 15 + Alembic + pytest**, а также отдельную **сборку через Docker Compose и тест самого упакованного образа (без bind mount `.:/app`)**: миграции, тесты, HTTP `/`, Swagger `/docs`, реальный `POST /departments/` → `GET /departments/{id}` и SQL `SELECT 1`. Базы и тома временные; workflow не выполняет production-деплой.
 
 ---
 
